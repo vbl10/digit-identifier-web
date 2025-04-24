@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digit Identifier</title>
+
+    <script src="utils.js"></script>
+</head>
+<body>
+    <div style="display: flex; width: fit-content; flex-direction: column; gap: 10px;">
+        <div style="display: flex; gap: 10px">
+            <div>
+                <span>Tela de Esboço</span>
+                <div id="canvasContainer"></div>
+            </div>
+            <div>
+                <span>Visão da Rede Neural</span>
+                <div id="canvasContainer2"></div>
+            </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                Controles:
+                <button id="btnClear" style="width: fit-content;">Limpar</button>
+                <div>
+                    <label for="strokeWidth">Espessura do traço:</label>
+                    <input type="number" name="strokeWidth" id="strokeWidth" min="3" max="12" value="6">
+                </div>
+            </div>
+            <div id="probs" style="display: flex; flex-direction: column; gap: 10px;">
+                Probabilidades:
+            </div>
+        </div>
+    </div>
+    <script>
+        let probBars;
+        let canvas;
+        let canvas2;
+        let digitIdentifier;
+        let updateCanvas2Promise;
+        
+        function onUpdate() {
+            const canvas2ToCanvas = 
+                Matrix
+                .makeIdentity2d()
+                .scale2d(28/100)
+                .inverse();
+
+            for (let y = 0; y < canvas2.resolution.y; y++) {
+                for (let x = 0; x < canvas2.resolution.x; x++) {
+                    const canvasPos = canvas2ToCanvas.mult(Matrix.makeVector2d({x, y})).toVector2d();
+                    canvasPos.x = Math.round(canvasPos.x);
+                    canvasPos.y = Math.round(canvasPos.y);
+                    if (canvasPos.x >= 0 && canvasPos.x < canvas.resolution.x 
+                        && canvasPos.y >= 0 && canvasPos.y < canvas.resolution.y) {
+                        canvas2.pixels[x * canvas2.resolution.x + y] = canvas.pixels[canvasPos.x * canvas.resolution.x + canvasPos.y];
+                    }
+                }
+            }
+            let probs = digitIdentifier.predict(new Matrix(canvas2.pixels, {x: 28*28, y: 1}));
+            probBars.updateProbsPercent(probs.mem.map(val => val * 100));
+
+            canvas2.draw();
+        }
+
+        function main() {
+            canvas = new Canvas(document.getElementById("canvasContainer"), {x: 100, y: 100}, onUpdate);
+            canvas2 = new Canvas(document.getElementById("canvasContainer2"), {x: 28, y: 28});
+            canvas2.enabled = false;
+
+            probBars = new ProbabilityBars(document.getElementById("probs"));
+            digitIdentifier = new DigitIdentifier("models/model1-nn784x16x16x10.dat");
+
+            document.getElementById("btnClear").addEventListener("click", () => {canvas.clear(); canvas2.clear();});
+            document.getElementById("strokeWidth").setAttribute("value", canvas.strokeWidth);
+            document.getElementById("strokeWidth").addEventListener("change", (ev) => {
+                canvas.strokeWidth = Number.parseInt(ev.target.value);
+            });
+        }
+        
+        main();
+    </script>
+</body>
+</html>
