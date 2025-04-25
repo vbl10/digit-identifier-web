@@ -36,43 +36,87 @@
     <script>
         let probBars;
         let canvas;
-        let canvas2;
+        let aiVision;
         let digitIdentifier;
         let updateCanvas2Promise;
         
         function onUpdate() {
+            // calculate center of mass, bounding box and rescale factor
+            let mass = 0;
+            const center = {x: 0, y: 0};
+            const bbox = {left: canvas.resolution.x, right: 0, top: canvas.resolution.y, bottom: 0};
+            for (let y = 0; y < canvas.resolution.y; y++) {
+                for (let x = 0; x < canvas.resolution.x; x++) {
+                    const val = canvas.pixels[x + y * canvas.resolution.x];
+                    if (val > 0) {
+                        bbox.left = Math.min(bbox.left, x);
+                        bbox.right = Math.max(bbox.right, x);
+                        bbox.top = Math.min(bbox.top, y);
+                        bbox.bottom = Math.max(bbox.bottom, y);
+                    }
+                    center.x += val * x;
+                    center.y += val * y;
+                    mass += val;
+                }
+            }
+            center.x /= mass;
+            center.y /= mass;
+
+            // fit 70% of the screen
+            const scale = Math.min(
+                0.7 * canvas.resolution.x / (bbox.right - bbox.left),
+                0.7 * canvas.resolution.y / (bbox.bottom - bbox.top),
+            );
+
+            // - translate to center of mass
+            // - rescale to fit 70% of the screen
+            // - translate to center of the screen
+            // - rescale to ai vision resolution
             const canvas2ToCanvas = 
                 Matrix
                 .makeIdentity2d()
-                .scale2d(28/100)
+                .scale2d({
+                    x: aiVision.resolution.x/canvas.resolution.x, 
+                    y: aiVision.resolution.y/canvas.resolution.y
+                })
+                .translate2d({
+                    x: canvas.resolution.x/2, 
+                    y: canvas.resolution.y/2,
+                })
+                .scale2d(scale)
+                .translate2d({
+                    x: -center.x, 
+                    y: -center.y,
+                })
                 .inverse();
 
-            for (let y = 0; y < canvas2.resolution.y; y++) {
-                for (let x = 0; x < canvas2.resolution.x; x++) {
+            // copy transformed canvas to aiVision
+            for (let y = 0; y < aiVision.resolution.y; y++) {
+                for (let x = 0; x < aiVision.resolution.x; x++) {
                     const canvasPos = canvas2ToCanvas.mult(Matrix.makeVector2d({x, y})).toVector2d();
                     canvasPos.x = Math.round(canvasPos.x);
                     canvasPos.y = Math.round(canvasPos.y);
                     if (canvasPos.x >= 0 && canvasPos.x < canvas.resolution.x 
                         && canvasPos.y >= 0 && canvasPos.y < canvas.resolution.y) {
-                        canvas2.pixels[x * canvas2.resolution.x + y] = canvas.pixels[canvasPos.x * canvas.resolution.x + canvasPos.y];
+                        aiVision.pixels[x + y * aiVision.resolution.x] = canvas.pixels[canvasPos.x + canvasPos.y * canvas.resolution.x];
                     }
                 }
             }
-            let probs = digitIdentifier.predict(new Matrix(canvas2.pixels, {x: 28*28, y: 1}));
+            let probs = digitIdentifier.predict(new Matrix(aiVision.pixels, {x: 28*28, y: 1}));
             probBars.updateProbsPercent(probs.mem.map(val => val * 100));
 
-            canvas2.draw();
+            aiVision.draw();
         }
 
         function main() {
             canvas = new Canvas(document.getElementById("canvasContainer"), {x: 100, y: 100}, onUpdate);
-            canvas2 = new Canvas(document.getElementById("canvasContainer2"), {x: 28, y: 28});
-            canvas2.enabled = false;
+            aiVision = new Canvas(document.getElementById("canvasContainer2"), {x: 28, y: 28});
+            aiVision.enabled = false;
 
             probBars = new ProbabilityBars(document.getElementById("probs"));
             digitIdentifier = new DigitIdentifier("models/model1-nn784x16x16x10.dat");
 
-            document.getElementById("btnClear").addEventListener("click", () => {canvas.clear(); canvas2.clear();});
+            document.getElementById("btnClear").addEventListener("click", () => {canvas.clear(); aiVision.clear();});
             document.getElementById("strokeWidth").setAttribute("value", canvas.strokeWidth);
             document.getElementById("strokeWidth").addEventListener("change", (ev) => {
                 canvas.strokeWidth = Number.parseInt(ev.target.value);
